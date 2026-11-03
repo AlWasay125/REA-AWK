@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+client = TestClient(app)
+
+
+def test_preferences_defaults_and_patch():
+    response = client.get("/api/v1/preferences", headers={"X-User-Id": "user-123"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["explanation_style"] == "beginner"
+    assert payload["analysis_depth"] == "balanced"
+    assert payload["privacy_mode"] == "hybrid"
+
+    update = client.patch(
+        "/api/v1/preferences",
+        headers={"X-User-Id": "user-123"},
+        json={"analysis_depth": "deep", "privacy_mode": "offline"},
+    )
+    assert update.status_code == 200
+    result = update.json()
+    assert result["analysis_depth"] == "deep"
+    assert result["privacy_mode"] == "offline"
+
+
+def test_invalid_privacy_mode_and_conflict_are_handled():
+    response = client.patch(
+        "/api/v1/preferences",
+        headers={"X-User-Id": "user-456"},
+        json={"external_inference_enabled": True, "privacy_mode": "offline"},
+    )
+    assert response.status_code == 400
+
+    created = client.get("/api/v1/preferences", headers={"X-User-Id": "user-456"})
+    current_version = created.json()["version"]
+    stale = client.patch(
+        "/api/v1/preferences",
+        headers={"X-User-Id": "user-456"},
+        json={"version": current_version - 1, "analysis_depth": "quick"},
+    )
+    assert stale.status_code == 409

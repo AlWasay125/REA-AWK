@@ -1,0 +1,191 @@
+import { useEffect, useMemo, useState } from 'react';
+
+type Preferences = {
+  explanation_style: string;
+  analysis_depth: string;
+  privacy_mode: string;
+  agent_permissions: string;
+  preferred_local_model: string | null;
+  preferred_external_provider: string | null;
+  external_inference_enabled: boolean;
+  max_agent_steps: number;
+  max_job_duration_seconds: number;
+  version: number;
+};
+
+const defaultPrefs: Preferences = {
+  explanation_style: 'beginner',
+  analysis_depth: 'balanced',
+  privacy_mode: 'hybrid',
+  agent_permissions: 'automatic',
+  preferred_local_model: null,
+  preferred_external_provider: null,
+  external_inference_enabled: false,
+  max_agent_steps: 20,
+  max_job_duration_seconds: 1800,
+  version: 1,
+};
+
+export default function App() {
+  const [loaded, setLoaded] = useState<Preferences | null>(null);
+  const [draft, setDraft] = useState<Preferences>(defaultPrefs);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    async function fetchPrefs() {
+      try {
+        const response = await fetch('http://127.0.0.1:8000/api/v1/preferences', {
+          headers: { 'X-User-Id': 'frontend-user' },
+        });
+        if (!response.ok) {
+          throw new Error('Failed to load preferences');
+        }
+        const data = await response.json();
+        setLoaded(data);
+        setDraft(data);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Unable to load settings');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchPrefs();
+  }, []);
+
+  const isDirty = useMemo(() => {
+    if (!loaded) return false;
+    return JSON.stringify(draft) !== JSON.stringify(loaded);
+  }, [draft, loaded]);
+
+  async function handleSave() {
+    setSaving(true);
+    setMessage('');
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/v1/preferences', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': 'frontend-user',
+        },
+        body: JSON.stringify({
+          explanation_style: draft.explanation_style,
+          analysis_depth: draft.analysis_depth,
+          privacy_mode: draft.privacy_mode,
+          agent_permissions: draft.agent_permissions,
+          external_inference_enabled: draft.external_inference_enabled,
+          max_agent_steps: draft.max_agent_steps,
+          max_job_duration_seconds: draft.max_job_duration_seconds,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error('Save failed');
+      }
+      const data = await response.json();
+      setLoaded(data);
+      setDraft(data);
+      setMessage('Preferences saved successfully.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleReset() {
+    if (!window.confirm('Reset only preferences? Existing cases and reports remain.')) {
+      return;
+    }
+    fetch('http://127.0.0.1:8000/api/v1/preferences/reset', {
+      method: 'PUT',
+      headers: { 'X-User-Id': 'frontend-user' },
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        setLoaded(data);
+        setDraft(data);
+        setMessage('Preferences reset successfully.');
+      })
+      .catch(() => setMessage('Reset failed.'));
+  }
+
+  if (loading) {
+    return <div className="page"><p>Loading settings…</p></div>;
+  }
+
+  return (
+    <main className="page">
+      <div className="panel">
+        <h1>Settings</h1>
+        <h2>AI &amp; Analysis Preferences</h2>
+
+        <div className="field">
+          <label>Explanation style</label>
+          <select value={draft.explanation_style} onChange={(e) => setDraft({ ...draft, explanation_style: e.target.value })}>
+            <option value="beginner">Beginner</option>
+            <option value="technical">Technical</option>
+            <option value="expert">Expert</option>
+          </select>
+        </div>
+
+        <div className="field">
+          <label>Analysis depth</label>
+          <select value={draft.analysis_depth} onChange={(e) => setDraft({ ...draft, analysis_depth: e.target.value })}>
+            <option value="quick">Quick</option>
+            <option value="balanced">Balanced</option>
+            <option value="deep">Deep</option>
+          </select>
+        </div>
+
+        <div className="field">
+          <label>Privacy mode</label>
+          <select value={draft.privacy_mode} onChange={(e) => setDraft({ ...draft, privacy_mode: e.target.value })}>
+            <option value="offline">Offline</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
+        </div>
+
+        <div className="field">
+          <label>Agent permissions</label>
+          <select value={draft.agent_permissions} onChange={(e) => setDraft({ ...draft, agent_permissions: e.target.value })}>
+            <option value="automatic">Automatic</option>
+            <option value="approval">Approval</option>
+          </select>
+        </div>
+
+        <div className="field">
+          <label>Local AI model</label>
+          <select value={draft.preferred_local_model ?? ''} onChange={(e) => setDraft({ ...draft, preferred_local_model: e.target.value || null })}>
+            <option value="">Select installed model</option>
+            <option value="llama3.1">llama3.1</option>
+            <option value="mistral">mistral</option>
+          </select>
+        </div>
+
+        <div className="field checkbox-row">
+          <input type="checkbox" checked={draft.external_inference_enabled} onChange={(e) => setDraft({ ...draft, external_inference_enabled: e.target.checked })} />
+          <label>External inference enabled</label>
+        </div>
+
+        <div className="advanced">
+          <label>Maximum agent steps</label>
+          <input type="number" min={1} max={100} value={draft.max_agent_steps} onChange={(e) => setDraft({ ...draft, max_agent_steps: Number(e.target.value) })} />
+
+          <label>Maximum job duration (seconds)</label>
+          <input type="number" min={60} max={7200} value={draft.max_job_duration_seconds} onChange={(e) => setDraft({ ...draft, max_job_duration_seconds: Number(e.target.value) })} />
+        </div>
+
+        <div className="actions">
+          <button className="secondary" onClick={handleReset}>Reset to defaults</button>
+          <button className="primary" onClick={handleSave} disabled={!isDirty || saving}>
+            {saving ? 'Saving...' : 'Save changes'}
+          </button>
+        </div>
+
+        {message && <p className="message">{message}</p>}
+      </div>
+    </main>
+  );
+}
